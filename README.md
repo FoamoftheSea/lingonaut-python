@@ -4,11 +4,12 @@ Welcome to LingoNaut! This repository contains a very simple python script for c
 LingoNaut uses OpenAI's Whisper for speech-to-text, any Ollama model of your choice for the LLM, and the TTS package for text-to-speech.
 
 ## Installation
-1. Install [Ollama](https://ollama.ai/) on your system. **Windows users will need to serve Ollama from WSL**, but can then run client scripts in Powershell.
+1. Install [Ollama](https://ollama.ai/) on your system. **Windows users will need to serve Ollama from WSL**, but can then run client scripts from Powershell.
 2. Install conda or miniconda on your system.
 3. Navigate to this repo, and use `conda env create -f environment.yml` to install.
 4. Use `conda activate lingonaut` to activate your environment.
-5. Run `python lingonaut.py`
+5. Run `create_lingonaut_ollama.py` to create the custom model.
+6. Run `python lingonaut.py` to launch the session with the language assistant.
 
 ## Usage Instructions
 - There are no special options for which language to learn. All models used are fully multilingual, simply state your intention and let the assistant guide you.
