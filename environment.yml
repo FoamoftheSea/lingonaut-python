@@ -1,0 +1,16 @@
+name: lingonaut
+channels:
+  - conda-forge
+  - nvidia
+  - pytorch
+dependencies:
+  - cudatoolkit
+  - python=3.10
+  - pytorch==2.2.0
+  - pip
+  - pip:
+      - ollama==0.1.6
+      - pynput==1.7.6
+      - openai-whisper
+      - pyaudio==0.2.14
+      - git+https://github.com/FoamoftheSea/TTS.git@verbosity
