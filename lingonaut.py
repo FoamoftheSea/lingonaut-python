@@ -17,46 +17,6 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
 
-class KeyListener(keyboard.Listener):
-    def __init__(self, recorder, player=None):
-        super().__init__(on_press=self.on_press, on_release=self.on_release)
-        self.recorder = recorder
-        self.exit = False
-        self.did_record = False
-        self.non_english = False
-        # self.player = player
-
-    def on_press(self, key):
-        if key is None:  # unknown event
-            pass
-        elif isinstance(key, keyboard.Key):  # special key event
-            if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
-                self.recorder.start()
-            if key in {key.shift, key.shift_l, key.shift_r}:
-                self.recorder.start()
-                self.non_english = True
-        elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
-            if key.char == 'q':  # press q to quit
-                if self.recorder.recording:
-                    self.did_record = True
-                    self.recorder.stop()
-                self.exit = True
-                return False  # this is how you stop the KeyListener thread
-            # if key.char == 'p' and not self.Recorder.recording:
-            #     self.player.start()
-
-    def on_release(self, key):
-        if key is None:  # unknown event
-            pass
-        elif isinstance(key, keyboard.Key):  # special key event
-            if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
-                self.exit = True
-                self.did_record = True
-                self.recorder.stop()
-        elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
-            pass
-
-
 class Recorder:
     def __init__(
         self,
@@ -106,6 +66,45 @@ class Recorder:
 
             self.recording = False
             print('recording finished')
+
+
+class KeyListener(keyboard.Listener):
+    def __init__(self, recorder: Recorder):
+        super().__init__(on_press=self.on_press, on_release=self.on_release)
+        self.recorder = recorder
+        self.exit = False
+        self.did_record = False
+        self.non_english = False
+
+    def on_press(self, key):
+        if key is None:  # unknown event
+            pass
+        elif isinstance(key, keyboard.Key):  # special key event
+            if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
+                self.recorder.start()
+            if key in {key.shift, key.shift_l, key.shift_r}:
+                self.recorder.start()
+                self.non_english = True
+        elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
+            if key.char == 'q':  # press q to quit
+                if self.recorder.recording:
+                    self.did_record = True
+                    self.recorder.stop()
+                self.exit = True
+                return False  # this is how you stop the KeyListener thread
+            # if key.char == 'p' and not self.Recorder.recording:
+            #     self.player.start()
+
+    def on_release(self, key):
+        if key is None:  # unknown event
+            pass
+        elif isinstance(key, keyboard.Key):  # special key event
+            if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
+                self.exit = True
+                self.did_record = True
+                self.recorder.stop()
+        elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
+            pass
 
 
 def play_audio(file_path):
@@ -172,7 +171,7 @@ def process_stream(chat_history: list):
                 # Break text at sentence-ending punctuation marks for smooth offloading to TTS.
                 if text_chunk != " " and text_chunk.replace(" ", "")[-1] in [".", "!", "?", ":", "\n"]:
                     if len(current_sentence) > 0 and len(non_nn_chunk) > 0:
-                        current_sentence.append(non_nn_chunk)
+                        current_sentence.append(text_chunk)
                     if len(current_sentence) > 30 or (len(current_sentence) > 0 and text_chunk.replace(" ", "").endswith("\n")):
                         total_stream += "".join(current_sentence)
                         current_sentence = dump_to_audio(current_sentence)
