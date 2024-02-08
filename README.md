@@ -1,4 +1,7 @@
 # LingoNaut for Python
+
+![LingoNaut](header.jpg)
+
 Welcome to LingoNaut! This repository contains a very simple python script for creating a custom speech-to-speech multilingual language learning assistant.
 
 LingoNaut uses OpenAI's Whisper for speech-to-text, any Ollama model of your choice for the LLM, and the TTS package for text-to-speech.
