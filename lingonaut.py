@@ -161,56 +161,60 @@ def process_stream(chat_history: list, listener: KeyListener):
     )
     total_stream = ""
 
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        with TemporaryDirectory() as tmp:
-            def dump_to_audio(cur_sentence: List[str], language="en"):
-                sentence = "".join(cur_sentence)
-                tts.tts_to_file(
-                    text=sentence,
-                    speaker=tts.speakers[10],
-                    language=language,
-                    file_path=wav_path,
-                    split_sentences=False,
-                    verbose=False,
-                )
-                # pool.submit(play_audio, wav_path)
-                play_audio(wav_path)
+    with ThreadPoolExecutor(max_workers=1) as play_pool:
+        with ThreadPoolExecutor(max_workers=1) as tts_pool:
+            with TemporaryDirectory() as tmp:
+                def dump_to_audio(cur_sentence: List[str], wave_path: str, language="en"):
+                    sentence = "".join([w.replace("\n", " ") for w in cur_sentence])
+                    tts.tts_to_file(
+                        text=sentence,
+                        speaker=tts.speakers[10],
+                        language=language,
+                        file_path=wave_path,
+                        split_sentences=False,
+                        verbose=False,
+                    )
+                    # tts_pool.submit(play_audio, wav_path)
+                    play_pool.submit(play_audio, wave_path)
+                    return
 
-            current_sentence = []
-            print("Assistant:")
-            for i, chunk in enumerate(stream):
-                if listener.interrupt:
-                    listener.interrupt = False
-                    break
-                wav_path = os.path.join(tmp, f"{i}.wav")
-                text_chunk = chunk['message']['content']
-                print(text_chunk, end="", flush=True)
+                current_sentence: List[str] = []
+                print("Assistant:")
+                for i, chunk in enumerate(stream):
+                    if listener.interrupt:
+                        listener.interrupt = False
+                        break
+                    wav_path = os.path.join(tmp, f"{i}.wav")
+                    text_chunk = chunk['message']['content']
+                    print(text_chunk, end="", flush=True)
 
-                text_chunk = treat_chunk(text_chunk)
-                if len(text_chunk) == 0:
-                    continue
-                non_nn_chunk = text_chunk.replace("\n", "")
-                # Break text at sentence-ending punctuation marks for smooth offloading to TTS.
-                if text_chunk != " " and text_chunk.replace(" ", "")[-1] in [".", "!", "?", ":", "\n"]:
-                    if len(current_sentence) > 0 and len(non_nn_chunk) > 0:
-                        current_sentence.append(text_chunk)
-                    if len(current_sentence) > 30 or (len(current_sentence) > 0 and text_chunk.replace(" ", "").endswith("\n")):
+                    text_chunk = treat_chunk(text_chunk)
+                    if len(text_chunk) == 0:
+                        continue
+                    non_nn_chunk = text_chunk.replace("\n", "")
+                    # Break text at sentence-ending punctuation marks for smooth offloading to TTS.
+                    if text_chunk != " " and text_chunk.replace(" ", "")[-1] in [".", "!", "?", ":", "\n"]:
+                        if len(current_sentence) > 0 and len(non_nn_chunk) > 0:
+                            current_sentence.append(text_chunk)
+                        if len(current_sentence) > 30 or (len(current_sentence) > 0 and text_chunk.replace(" ", "").endswith("\n")):
+                            total_stream += "".join(current_sentence)
+                            tts_pool.submit(dump_to_audio, current_sentence, wav_path, "en")
+                            current_sentence = []
+                        continue
+                    # Otherwise use a hard limit of 50 chunks to avoid overflow
+                    if len(current_sentence) > 50:
                         total_stream += "".join(current_sentence)
-                        pool.submit(dump_to_audio, current_sentence)
+                        tts_pool.submit(dump_to_audio, current_sentence, wav_path, "en")
                         current_sentence = []
-                    continue
-                # Otherwise use a hard limit of 50 chunks to avoid overflow
-                if len(current_sentence) > 50:
+                    elif len(non_nn_chunk) > 0:
+                        current_sentence.append(text_chunk)
+
+                if len(current_sentence) > 0:
                     total_stream += "".join(current_sentence)
-                    pool.submit(dump_to_audio, current_sentence)
-                    current_sentence = []
-                elif len(non_nn_chunk) > 0:
-                    current_sentence.append(non_nn_chunk)
+                    tts_pool.submit(dump_to_audio, current_sentence, wav_path, "en")
 
-            if len(current_sentence) > 0:
-                pool.submit(dump_to_audio, current_sentence)
-
-            pool.shutdown(wait=True)
+                tts_pool.shutdown(wait=True)
+                play_pool.shutdown(wait=True)
 
     return {"role": "assistant", "content": total_stream}
 
@@ -231,14 +235,14 @@ def main():
                 print("Transcribing user input...")
                 model_size = "medium" if listener.non_english else "base"
                 whisper_model = whisper.load_model(model_size, device=device)
-                result = whisper_model.transcribe(input_path)
+                result = whisper_model.transcribe(input_path, task="transcribe")
                 user_input = result["text"]
                 del whisper_model
                 torch.cuda.empty_cache()
                 print("-------------------------------------------------")
                 print("User:", user_input)
                 print("-------------------------------------------------")
-                if len(user_input) == 0:
+                if len(user_input.replace(" ", "")) == 0:
                     listener.reset()
                     continue
                 chat_history.append({'role': 'user', 'content': user_input})
