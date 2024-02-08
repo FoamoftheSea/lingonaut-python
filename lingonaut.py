@@ -1,5 +1,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import List
+
 from pynput import keyboard
 import os
 import pyaudio
@@ -236,6 +238,7 @@ def main():
                 print("User:", user_input)
                 print("-------------------------------------------------")
                 if len(user_input) == 0:
+                    listener.reset()
                     continue
                 chat_history.append({'role': 'user', 'content': user_input})
                 chat_history.append(process_stream(chat_history, listener))
