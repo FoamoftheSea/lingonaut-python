@@ -69,9 +69,9 @@ class Recorder:
 
 
 class KeyListener(keyboard.Listener):
-    def __init__(self, recorder: Recorder):
+    def __init__(self):
         super().__init__(on_press=self.on_press, on_release=self.on_release)
-        self.recorder = recorder
+        self.recorder = None
         self.exit = False
         self.did_record = False
         self.non_english = False
@@ -82,38 +82,46 @@ class KeyListener(keyboard.Listener):
         if key is None:  # unknown event
             pass
         elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
-            if key.char == 'l':
-                self.lock = not self.lock
-            elif not self.lock:
+            if not self.lock and not self.did_record:
                 if key.char == 'q':  # press q to quit
-                    if not self.lock:
-                        if self.recorder.recording:
-                            self.did_record = True
-                            self.recorder.stop()
-                        self.exit = True
-                        return False
-                elif key.char == 'x':  # press x to cut off assistant reply
-                    self.interrupt = True
+                    if self.recorder.recording:
+                        self.did_record = True
+                        self.recorder.stop()
+                    self.exit = True
+                    return False
         elif isinstance(key, keyboard.Key):  # special key event
-            if not self.lock:
-                if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
-                    self.recorder.start()
-                    self.non_english = False
-                elif key in {key.shift, key.shift_l, key.shift_r}:
-                    self.recorder.start()
-                    self.non_english = True
+            if key == key.caps_lock:
+                self.lock = not self.lock
+                state = "locked" if self.lock else "unlocked"
+                print(f"Keys {state}")
+            elif not self.lock:
+                if not self.did_record:
+                    if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
+                        self.recorder.start()
+                        self.non_english = False
+                    elif key in {key.shift, key.shift_l, key.shift_r}:
+                        self.recorder.start()
+                        self.non_english = True
+                elif key == key.end:
+                    print("Interrupting...")
+                    self.interrupt = True  # Interrupts agent response
 
     def on_release(self, key):
         if key is None:  # unknown event
             pass
         elif not self.lock:
             if isinstance(key, keyboard.Key):  # special key event
-                if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
-                    self.exit = True
-                    self.did_record = True
-                    self.recorder.stop()
+                if not self.did_record:
+                    if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
+                        self.exit = True
+                        self.did_record = True
+                        self.recorder.stop()
             elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
                 pass
+
+    def reset(self):
+        self.did_record = False
+        self.exit = False
 
 
 def play_audio(file_path):
@@ -206,17 +214,17 @@ def process_stream(chat_history: list, listener: KeyListener):
 
 def main():
     chat_history = []
+    listener = KeyListener()
+    listener.start()  # keyboard KeyListener is a thread so we start it here
     with TemporaryDirectory() as tmp:
         while True:
             input_path = os.path.join(tmp, "user.wav")
             r = Recorder(input_path)
-            listener = KeyListener(r)
-            listener.start()  # keyboard KeyListener is a thread so we start it here
+            listener.recorder = r
             print("\nAwaiting user input...")
             while not listener.exit:
                 time.sleep(0.1)
             if listener.did_record:
-                listener.stop()
                 print("Transcribing user input...")
                 model_size = "medium" if listener.non_english else "base"
                 whisper_model = whisper.load_model(model_size, device=device)
@@ -224,12 +232,19 @@ def main():
                 user_input = result["text"]
                 del whisper_model
                 torch.cuda.empty_cache()
+                print("-------------------------------------------------")
                 print("User:", user_input)
+                print("-------------------------------------------------")
+                if len(user_input) == 0:
+                    continue
                 chat_history.append({'role': 'user', 'content': user_input})
                 chat_history.append(process_stream(chat_history, listener))
+                print("\n-------------------------------------------------")
+                listener.reset()
             else:
-                listener.join()
                 break
+    listener.stop()
+    listener.join()
 
 
 if __name__ == "__main__":
