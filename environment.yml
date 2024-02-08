@@ -6,7 +6,7 @@ channels:
 dependencies:
   - cudatoolkit
   - python=3.10
-  - pytorch==2.2.0
+  - pytorch=2.2.0
   - pip
   - pip:
       - ollama==0.1.6
