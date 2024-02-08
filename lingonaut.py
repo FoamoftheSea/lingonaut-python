@@ -75,36 +75,45 @@ class KeyListener(keyboard.Listener):
         self.exit = False
         self.did_record = False
         self.non_english = False
+        self.interrupt = False
+        self.lock = False  # Allows user to lock controls
 
     def on_press(self, key):
         if key is None:  # unknown event
             pass
-        elif isinstance(key, keyboard.Key):  # special key event
-            if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
-                self.recorder.start()
-            if key in {key.shift, key.shift_l, key.shift_r}:
-                self.recorder.start()
-                self.non_english = True
         elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
-            if key.char == 'q':  # press q to quit
-                if self.recorder.recording:
-                    self.did_record = True
-                    self.recorder.stop()
-                self.exit = True
-                return False  # this is how you stop the KeyListener thread
-            # if key.char == 'p' and not self.Recorder.recording:
-            #     self.player.start()
+            if key.char == 'l':
+                self.lock = not self.lock
+            elif not self.lock:
+                if key.char == 'q':  # press q to quit
+                    if not self.lock:
+                        if self.recorder.recording:
+                            self.did_record = True
+                            self.recorder.stop()
+                        self.exit = True
+                        return False
+                elif key.char == 'x':  # press x to cut off assistant reply
+                    self.interrupt = True
+        elif isinstance(key, keyboard.Key):  # special key event
+            if not self.lock:
+                if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
+                    self.recorder.start()
+                    self.non_english = False
+                elif key in {key.shift, key.shift_l, key.shift_r}:
+                    self.recorder.start()
+                    self.non_english = True
 
     def on_release(self, key):
         if key is None:  # unknown event
             pass
-        elif isinstance(key, keyboard.Key):  # special key event
-            if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
-                self.exit = True
-                self.did_record = True
-                self.recorder.stop()
-        elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
-            pass
+        elif not self.lock:
+            if isinstance(key, keyboard.Key):  # special key event
+                if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
+                    self.exit = True
+                    self.did_record = True
+                    self.recorder.stop()
+            elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
+                pass
 
 
 def play_audio(file_path):
@@ -134,7 +143,7 @@ def treat_chunk(chunk):
     return treated_chunk
 
 
-def process_stream(chat_history: list):
+def process_stream(chat_history: list, listener: KeyListener):
     stream = ollama.chat(
         model='mistral:lingonaut',
         messages=chat_history,
@@ -160,6 +169,9 @@ def process_stream(chat_history: list):
             current_sentence = []
             print("Assistant:")
             for i, chunk in enumerate(stream):
+                if listener.interrupt:
+                    listener.interrupt = False
+                    break
                 wav_path = os.path.join(tmp, f"{i}.wav")
                 text_chunk = chunk['message']['content']
                 print(text_chunk, end="", flush=True)
@@ -214,7 +226,7 @@ def main():
                 torch.cuda.empty_cache()
                 print("User:", user_input)
                 chat_history.append({'role': 'user', 'content': user_input})
-                chat_history.append(process_stream(chat_history))
+                chat_history.append(process_stream(chat_history, listener))
             else:
                 listener.join()
                 break
