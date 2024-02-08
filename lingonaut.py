@@ -161,10 +161,10 @@ def process_stream(chat_history: list, listener: KeyListener):
     )
     total_stream = ""
 
-    with ThreadPoolExecutor(max_workers=1) as play_pool:
+    with ThreadPoolExecutor(max_workers=1) as pool:
         with TemporaryDirectory() as tmp:
-            def dump_to_audio(current_sentence, language="en"):
-                sentence = "".join(current_sentence)
+            def dump_to_audio(cur_sentence: List[str], language="en"):
+                sentence = "".join(cur_sentence)
                 tts.tts_to_file(
                     text=sentence,
                     speaker=tts.speakers[10],
@@ -173,8 +173,8 @@ def process_stream(chat_history: list, listener: KeyListener):
                     split_sentences=False,
                     verbose=False,
                 )
-                play_pool.submit(play_audio, wav_path)
-                return []
+                # pool.submit(play_audio, wav_path)
+                play_audio(wav_path)
 
             current_sentence = []
             print("Assistant:")
@@ -196,20 +196,21 @@ def process_stream(chat_history: list, listener: KeyListener):
                         current_sentence.append(text_chunk)
                     if len(current_sentence) > 30 or (len(current_sentence) > 0 and text_chunk.replace(" ", "").endswith("\n")):
                         total_stream += "".join(current_sentence)
-                        current_sentence = dump_to_audio(current_sentence)
+                        pool.submit(dump_to_audio, current_sentence)
+                        current_sentence = []
                     continue
                 # Otherwise use a hard limit of 50 chunks to avoid overflow
                 if len(current_sentence) > 50:
                     total_stream += "".join(current_sentence)
-                    current_sentence = dump_to_audio(current_sentence)
-                # Last condition (any chunk left to save)
+                    pool.submit(dump_to_audio, current_sentence)
+                    current_sentence = []
                 elif len(non_nn_chunk) > 0:
                     current_sentence.append(non_nn_chunk)
 
             if len(current_sentence) > 0:
-                dump_to_audio(current_sentence)
+                pool.submit(dump_to_audio, current_sentence)
 
-            play_pool.shutdown(wait=True)
+            pool.shutdown(wait=True)
 
     return {"role": "assistant", "content": total_stream}
 
