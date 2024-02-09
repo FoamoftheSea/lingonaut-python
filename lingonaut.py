@@ -103,7 +103,7 @@ class KeyListener(keyboard.Listener):
                     self.exit = True
                     return False
         elif isinstance(key, keyboard.Key):  # special key event
-            if key == key.caps_lock:
+            if key == key.f2:
                 self.lock = not self.lock
                 state = "locked" if self.lock else "unlocked"
                 print(f"Keys {state}")
