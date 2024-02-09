@@ -147,6 +147,24 @@ def play_audio(file_path):
     p.terminate()
 
 
+def join_sentence_chunks(chunks: List[str], clear_nl=False):
+    return "".join([chunk.replace("\n", " ") for chunk in chunks])
+
+
+def dump_to_audio(cur_sentence: str, wave_path: str, language="en"):
+    sentence = cur_sentence.replace("\n", "")
+    tts.tts_to_file(
+        text=sentence,
+        speaker=tts.speakers[10],
+        language=language,
+        file_path=wave_path,
+        split_sentences=False,
+        verbose=False,
+    )
+
+    return wave_path
+
+
 def treat_chunk(chunk):
     treated_chunk = chunk.replace('"', "").replace("(", "").replace(")", "").replace("*", "")
 
@@ -164,21 +182,17 @@ def process_stream(chat_history: list, listener: KeyListener):
     with ThreadPoolExecutor(max_workers=1) as play_pool:
         with ThreadPoolExecutor(max_workers=1) as tts_pool:
             with TemporaryDirectory() as tmp:
-                def dump_to_audio(cur_sentence: List[str], wave_path: str, language="en"):
-                    sentence = "".join([w.replace("\n", " ") for w in cur_sentence])
-                    tts.tts_to_file(
-                        text=sentence,
-                        speaker=tts.speakers[10],
-                        language=language,
-                        file_path=wave_path,
-                        split_sentences=False,
-                        verbose=False,
-                    )
-                    # tts_pool.submit(play_audio, wav_path)
-                    play_pool.submit(play_audio, wave_path)
+                def play_output(cur_sentence, wave_path):
+                    output_path = dump_to_audio(cur_sentence, wave_path)
+                    play_pool.submit(play_audio, output_path)
                     return
 
-                current_sentence: List[str] = []
+                def process_section(cur_section: List[str]):
+                    current_string = "".join(cur_section)
+                    tts_pool.submit(play_output, current_string, wav_path)
+                    return current_string
+
+                current_section: List[str] = []
                 print("Assistant:")
                 for i, chunk in enumerate(stream):
                     if listener.interrupt:
@@ -194,24 +208,21 @@ def process_stream(chat_history: list, listener: KeyListener):
                     non_nn_chunk = text_chunk.replace("\n", "")
                     # Break text at sentence-ending punctuation marks for smooth offloading to TTS.
                     if text_chunk != " " and text_chunk.replace(" ", "")[-1] in [".", "!", "?", ":", "\n"]:
-                        if len(current_sentence) > 0 and len(non_nn_chunk) > 0:
-                            current_sentence.append(text_chunk)
-                        if len(current_sentence) > 30 or (len(current_sentence) > 0 and text_chunk.replace(" ", "").endswith("\n")):
-                            total_stream += "".join(current_sentence)
-                            tts_pool.submit(dump_to_audio, current_sentence, wav_path, "en")
-                            current_sentence = []
+                        if len(current_section) > 0 and len(non_nn_chunk) > 0:
+                            current_section.append(text_chunk)
+                        if len(current_section) > 30 or (len(current_section) > 0 and text_chunk.replace(" ", "").endswith("\n")):
+                            total_stream += process_section(current_section)
+                            current_section = []
                         continue
                     # Otherwise use a hard limit of 50 chunks to avoid overflow
-                    if len(current_sentence) > 50:
-                        total_stream += "".join(current_sentence)
-                        tts_pool.submit(dump_to_audio, current_sentence, wav_path, "en")
-                        current_sentence = []
+                    if len(current_section) > 50:
+                        total_stream += process_section(current_section)
+                        current_section = []
                     elif len(non_nn_chunk) > 0:
-                        current_sentence.append(text_chunk)
+                        current_section.append(text_chunk)
 
-                if len(current_sentence) > 0:
-                    total_stream += "".join(current_sentence)
-                    tts_pool.submit(dump_to_audio, current_sentence, wav_path, "en")
+                if len(current_section) > 0:
+                    total_stream += process_section(current_section)
 
                 tts_pool.shutdown(wait=True)
                 play_pool.shutdown(wait=True)
@@ -220,12 +231,17 @@ def process_stream(chat_history: list, listener: KeyListener):
 
 
 def main():
-    chat_history = []
-    listener = KeyListener()
-    listener.start()  # keyboard KeyListener is a thread so we start it here
+
     with TemporaryDirectory() as tmp:
+        listener = KeyListener()
+        listener.start()  # keyboard KeyListener is a thread so we start it here
+        input_path = os.path.join(tmp, "user.wav")
+        welcome_string = "Welcome to LingoNaut! How can I assist you in your learning journey today?"
+        print(welcome_string)
+        play_audio(dump_to_audio(welcome_string, input_path))
+        chat_history = [{"role": "assistant", "content": welcome_string}]
+
         while True:
-            input_path = os.path.join(tmp, "user.wav")
             r = Recorder(input_path)
             listener.recorder = r
             print("\nAwaiting user input...")
@@ -251,6 +267,7 @@ def main():
                 listener.reset()
             else:
                 break
+
     listener.stop()
     listener.join()
 
