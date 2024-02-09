@@ -18,6 +18,17 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 # Init TTS
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
+header_string = '''                                                                                  
+
+██╗     ██╗███╗   ██╗ ██████╗  ██████╗ ███╗   ██╗ █████╗ ██╗   ██╗████████╗
+██║     ██║████╗  ██║██╔════╝ ██╔═══██╗████╗  ██║██╔══██╗██║   ██║╚══██╔══╝
+██║     ██║██╔██╗ ██║██║  ███╗██║   ██║██╔██╗ ██║███████║██║   ██║   ██║   
+██║     ██║██║╚██╗██║██║   ██║██║   ██║██║╚██╗██║██╔══██║██║   ██║   ██║   
+███████╗██║██║ ╚████║╚██████╔╝╚██████╔╝██║ ╚████║██║  ██║╚██████╔╝   ██║   
+╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝    ╚═╝   
+                                                                           
+'''
+
 
 class Recorder:
     def __init__(
@@ -58,7 +69,7 @@ class Recorder:
                                        stream_callback=callback)
             self.stream.start_stream()
             self.recording = True
-            print('recording started')
+            print('Recording started.')
 
     def stop(self):
         if self.recording:
@@ -67,7 +78,7 @@ class Recorder:
             self.wf.close()
 
             self.recording = False
-            print('recording finished')
+            print('Recording finished.')
 
 
 class KeyListener(keyboard.Listener):
@@ -122,6 +133,7 @@ class KeyListener(keyboard.Listener):
                 pass
 
     def reset(self):
+        self.interrupt = False
         self.did_record = False
         self.exit = False
 
@@ -178,6 +190,7 @@ def process_stream(chat_history: list, listener: KeyListener):
         stream=True,
     )
     total_stream = ""
+    interrupted = False
 
     with ThreadPoolExecutor(max_workers=1) as play_pool:
         with ThreadPoolExecutor(max_workers=1) as tts_pool:
@@ -197,6 +210,7 @@ def process_stream(chat_history: list, listener: KeyListener):
                 for i, chunk in enumerate(stream):
                     if listener.interrupt:
                         listener.interrupt = False
+                        interrupted = True
                         break
                     wav_path = os.path.join(tmp, f"{i}.wav")
                     text_chunk = chunk['message']['content']
@@ -221,13 +235,13 @@ def process_stream(chat_history: list, listener: KeyListener):
                     elif len(non_nn_chunk) > 0:
                         current_section.append(text_chunk)
 
-                if len(current_section) > 0:
+                if len(current_section) > 0 and not interrupted:
                     total_stream += process_section(current_section)
 
-                tts_pool.shutdown(wait=True)
-                play_pool.shutdown(wait=True)
+                tts_pool.shutdown(wait=not interrupted)
+                play_pool.shutdown(wait=not interrupted)
 
-    return {"role": "assistant", "content": total_stream}
+    return {"role": "assistant", "content": total_stream} if not interrupted else None
 
 
 def main():
@@ -261,9 +275,12 @@ def main():
                 if len(user_input.replace(" ", "")) == 0:
                     listener.reset()
                     continue
-                chat_history.append({'role': 'user', 'content': user_input})
-                chat_history.append(process_stream(chat_history, listener))
-                print("\n-------------------------------------------------")
+                if not listener.interrupt:
+                    chat_history.append({'role': 'user', 'content': user_input})
+                    response = process_stream(chat_history, listener)
+                    if response is not None:
+                        chat_history.append(response)
+                        print("\n-------------------------------------------------")
                 listener.reset()
             else:
                 break
@@ -273,4 +290,5 @@ def main():
 
 
 if __name__ == "__main__":
+    print(header_string)
     main()
