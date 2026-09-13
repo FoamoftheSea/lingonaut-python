@@ -30,13 +30,27 @@ header_string = '''
 '''
 
 
+controls_string = '''Controls:
+  Hold Ctrl    Ask a question in English
+  Hold Shift   Speak another language (uses a larger, more accurate Whisper model)
+  End          Interrupt the assistant while it's responding
+  F2           Lock or unlock the other keys
+  q            Quit
+'''
+
+
+# Whisper converts recordings to mono before transcribing, so one channel suits most
+# microphones. Set this to 2 if you use a stereo mic.
+INPUT_CHANNELS = 1
+
+
 class Recorder:
     def __init__(
         self,
         wavfile,
         chunksize=8192,
         dataformat=pyaudio.paInt16,
-        channels=2,
+        channels=INPUT_CHANNELS,
         rate=44100
     ):
         self.filename = wavfile
@@ -90,6 +104,7 @@ class KeyListener(keyboard.Listener):
         self.non_english = False
         self.interrupt = False
         self.lock = False  # Allows user to lock controls
+        self.warned_not_ready = False
 
     def on_press(self, key):
         if key is None:  # unknown event
@@ -97,7 +112,7 @@ class KeyListener(keyboard.Listener):
         elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
             if not self.lock and not self.did_record:
                 if key.char == 'q':  # press q to quit
-                    if self.recorder.recording:
+                    if self.recorder is not None and self.recorder.recording:
                         self.did_record = True
                         self.recorder.stop()
                     self.exit = True
@@ -110,27 +125,41 @@ class KeyListener(keyboard.Listener):
             elif not self.lock:
                 if not self.did_record:
                     if key in {key.ctrl, key.ctrl_l, key.ctrl_r}:  # and self.player.playing == 0:
-                        self.recorder.start()
-                        self.non_english = False
+                        self.start_recording(non_english=False)
                     elif key in {key.shift, key.shift_l, key.shift_r}:
-                        self.recorder.start()
-                        self.non_english = True
+                        self.start_recording(non_english=True)
                 elif key == key.end:
                     print("Interrupting...")
                     self.interrupt = True  # Interrupts agent response
 
     def on_release(self, key):
+        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r,
+                   keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}:
+            self.warned_not_ready = False
         if key is None:  # unknown event
             pass
         elif not self.lock:
             if isinstance(key, keyboard.Key):  # special key event
                 if not self.did_record:
                     if key in {key.ctrl, key.ctrl_l, key.ctrl_r, key.shift, key.shift_l, key.shift_r}:
-                        self.exit = True
-                        self.did_record = True
-                        self.recorder.stop()
+                        # Only finish a recording that actually started, so a release without one
+                        # doesn't send a missing file to Whisper.
+                        if self.recorder is not None and self.recorder.recording:
+                            self.exit = True
+                            self.did_record = True
+                            self.recorder.stop()
             elif isinstance(key, keyboard.KeyCode):  # alphanumeric key event
                 pass
+
+    def start_recording(self, non_english):
+        if self.recorder is None:
+            # Held keys can repeat press events on some platforms, so warn once per hold.
+            if not self.warned_not_ready:
+                print('Not ready to record yet. Wait for "Awaiting user input..." and try again.')
+                self.warned_not_ready = True
+            return
+        self.recorder.start()
+        self.non_english = non_english
 
     def reset(self):
         self.interrupt = False
@@ -244,7 +273,43 @@ def process_stream(chat_history: list, listener: KeyListener):
     return {"role": "assistant", "content": total_stream} if not interrupted else None
 
 
+def check_input_device(pa, channels=INPUT_CHANNELS):
+    try:
+        device = pa.get_default_input_device_info()
+    except IOError:
+        raise SystemExit("No microphone found. Connect one or choose a default input device, then try again.") from None
+    available = device["maxInputChannels"]
+    if channels > available:
+        raise SystemExit(
+            f'Microphone "{device["name"]}" has {available} input channel(s), but INPUT_CHANNELS is {channels}. '
+            "Lower INPUT_CHANNELS in lingonaut.py and try again."
+        )
+    message = f'Microphone: "{device["name"]}", recording {channels} of {available} channel(s).'
+    if available > channels:
+        message += " To record more, raise INPUT_CHANNELS in lingonaut.py."
+    print(message)
+
+
+def ensure_listener_alive(listener: KeyListener):
+    # pynput stops the listener when a key callback raises, which would otherwise leave main()
+    # waiting for key presses forever. join() re-raises the error that stopped it.
+    if listener.is_alive() or listener.exit:
+        return
+    message = "The keyboard listener stopped, so key presses can no longer be detected."
+    try:
+        listener.join()
+    except Exception as e:
+        raise RuntimeError(message) from e
+    raise RuntimeError(message)
+
+
 def main():
+    pa = pyaudio.PyAudio()
+    try:
+        check_input_device(pa)
+    finally:
+        pa.terminate()
+    print(controls_string)
 
     with TemporaryDirectory() as tmp:
         listener = KeyListener()
@@ -260,6 +325,7 @@ def main():
             listener.recorder = r
             print("\nAwaiting user input...")
             while not listener.exit:
+                ensure_listener_alive(listener)
                 time.sleep(0.1)
             if listener.did_record:
                 print("Transcribing user input...")

@@ -13,4 +13,5 @@ dependencies:
       - pynput==1.7.6
       - openai-whisper
       - pyaudio==0.2.14
+      - pytest==9.1.1
       - git+https://github.com/FoamoftheSea/TTS.git@verbosity

@@ -20,3 +20,7 @@ LingoNaut uses OpenAI's Whisper for speech-to-text, any Ollama model of your cho
 - After running the Python script, you will see a message in the terminal that says "Awaiting user input..." when it is your move.
   - To ask the assistant questions in English, hold down `Ctrl` and ask your question. On key release, your message will be passed to assistant.
   - **When practicing another language, hold down `SHIFT`** to use a larger version of the Whisper model which is more accurate in non-English transcription.
+  - Press `End` to interrupt the assistant while it's responding.
+  - Press `F2` to lock or unlock the other keys.
+  - Press `q` to quit.
+- The same controls are printed in the terminal when LingoNaut starts.
