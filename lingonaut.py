@@ -167,7 +167,7 @@ def dump_to_audio(cur_sentence: str, wave_path: str, language="en"):
     sentence = cur_sentence.replace("\n", "")
     tts.tts_to_file(
         text=sentence,
-        speaker=tts.speakers[10],
+        speaker="default",
         language=language,
         file_path=wave_path,
         split_sentences=False,
