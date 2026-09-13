@@ -68,6 +68,17 @@ def test_key_press_before_recorder_is_ready_warns_instead_of_crashing(capsys):
     assert not listener.did_record
 
 
+def test_not_ready_warning_prints_once_per_key_hold(capsys):
+    listener = lingonaut.KeyListener()
+    listener.on_press(keyboard.Key.ctrl)
+    listener.on_press(keyboard.Key.ctrl)  # held keys can repeat press events
+    assert capsys.readouterr().out.count("Not ready to record yet") == 1
+
+    listener.on_release(keyboard.Key.ctrl)
+    listener.on_press(keyboard.Key.ctrl)
+    assert capsys.readouterr().out.count("Not ready to record yet") == 1
+
+
 def test_key_release_without_a_recording_does_not_start_transcription():
     listener = lingonaut.KeyListener()
     listener.on_release(keyboard.Key.ctrl)

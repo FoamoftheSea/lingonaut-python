@@ -30,6 +30,15 @@ header_string = '''
 '''
 
 
+controls_string = '''Controls:
+  Hold Ctrl    Ask a question in English
+  Hold Shift   Speak another language (uses a larger, more accurate Whisper model)
+  End          Interrupt the assistant while it's responding
+  F2           Lock or unlock the other keys
+  q            Quit
+'''
+
+
 # Whisper converts recordings to mono before transcribing, so one channel suits most
 # microphones. Set this to 2 if you use a stereo mic.
 INPUT_CHANNELS = 1
@@ -95,6 +104,7 @@ class KeyListener(keyboard.Listener):
         self.non_english = False
         self.interrupt = False
         self.lock = False  # Allows user to lock controls
+        self.warned_not_ready = False
 
     def on_press(self, key):
         if key is None:  # unknown event
@@ -123,6 +133,9 @@ class KeyListener(keyboard.Listener):
                     self.interrupt = True  # Interrupts agent response
 
     def on_release(self, key):
+        if key in {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r,
+                   keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r}:
+            self.warned_not_ready = False
         if key is None:  # unknown event
             pass
         elif not self.lock:
@@ -140,7 +153,10 @@ class KeyListener(keyboard.Listener):
 
     def start_recording(self, non_english):
         if self.recorder is None:
-            print('Not ready to record yet. Wait for "Awaiting user input..." and try again.')
+            # Held keys can repeat press events on some platforms, so warn once per hold.
+            if not self.warned_not_ready:
+                print('Not ready to record yet. Wait for "Awaiting user input..." and try again.')
+                self.warned_not_ready = True
             return
         self.recorder.start()
         self.non_english = non_english
@@ -293,16 +309,16 @@ def main():
         check_input_device(pa)
     finally:
         pa.terminate()
+    print(controls_string)
 
     with TemporaryDirectory() as tmp:
         listener = KeyListener()
+        listener.start()  # keyboard KeyListener is a thread so we start it here
         input_path = os.path.join(tmp, "user.wav")
         welcome_string = "Welcome to LingoNaut! How can I assist you in your learning journey today?"
         print(welcome_string)
         play_audio(dump_to_audio(welcome_string, input_path))
         chat_history = [{"role": "assistant", "content": welcome_string}]
-        # Start listening only after the welcome message, so key presses can't arrive before a recorder exists.
-        listener.start()  # keyboard KeyListener is a thread so we start it here
 
         while True:
             r = Recorder(input_path)
